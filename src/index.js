@@ -1,5 +1,6 @@
 import express from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
+import { execSync } from 'child_process';
 import { config } from './config.js';
 import { refreshAgentCache, getAllAgents, getAgentByNotionId } from './agent-cache.js';
 import { handleNotionWebhook, handleCommentWebhook } from './webhook-handler.js';
@@ -146,8 +147,27 @@ app.post('/dispatch', async (req, res) => {
   }
 });
 
-// Agent creation endpoint
+// Agent creation endpoint (dirs + openclaw.json only)
 app.post('/agents/create', createAgent);
+
+// Gateway restart endpoint (called by COO as final step)
+app.post('/agents/restart-gateway', async (req, res) => {
+  console.log('[restart-gateway] Docker restart requested');
+  res.json({ success: true, message: 'Restart initiated. Gateway will be back in ~30s.' });
+
+  // Run async after response is sent
+  setTimeout(() => {
+    try {
+      execSync('cd /root/openclaw && docker compose restart openclaw-gateway', {
+        timeout: 90_000,
+        stdio: 'pipe',
+      });
+      console.log('[restart-gateway] Docker restarted successfully');
+    } catch (err) {
+      console.error('[restart-gateway] Docker restart failed:', err.message);
+    }
+  }, 500);
+});
 
 // Poller control
 app.post('/poller/start', (req, res) => {
@@ -197,10 +217,11 @@ async function start() {
     console.log(`[server] Listening on port ${config.port}`);
     console.log('[server] Endpoints:');
     console.log(`  GET  /health`);
-    console.log(`  POST /dispatch           — manual task dispatch`);
-    console.log(`  POST /agents/create      — create new OpenClaw agent`);
-    console.log(`  POST /webhook/notion     — Notion webhook receiver (comments)`);
-    console.log(`  POST /poller/start|stop  — control polling`);
+    console.log(`  POST /dispatch              — manual task dispatch`);
+    console.log(`  POST /agents/create         — create new OpenClaw agent`);
+    console.log(`  POST /agents/restart-gateway — restart Docker gateway`);
+    console.log(`  POST /webhook/notion        — Notion webhook receiver (comments)`);
+    console.log(`  POST /poller/start|stop     — control polling`);
     console.log(`  GET  /poller/status`);
     console.log(`  GET  /agents`);
     console.log(`  POST /agents/refresh`);

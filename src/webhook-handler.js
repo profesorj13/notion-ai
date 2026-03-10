@@ -279,7 +279,7 @@ async function dispatchTask(taskTitle, taskId, taskUrl, page, agent, includeFeed
 /**
  * Handle agent setup: dispatches the COO to create/configure a new agent.
  */
-export async function handleAgentSetup(agentPage) {
+export async function handleAgentSetup(agentPage, options = {}) {
   const pageId = agentPage.id;
   const props = agentPage.properties;
 
@@ -298,13 +298,15 @@ export async function handleAgentSetup(agentPage) {
     return { action: 'skipped', reason: 'empty_body' };
   }
 
-  try {
-    await updatePage(pageId, {
-      'Estado': { select: { name: 'creando...' } },
-    });
-    console.log(`[agent-setup] Changed estado to "creando..." for "${agentName}"`);
-  } catch (err) {
-    console.error(`[agent-setup] Failed to update estado:`, err.message);
+  if (estado !== "creando...") {
+    try {
+      await updatePage(pageId, {
+        'Estado': { select: { name: 'creando...' } },
+      });
+      console.log(`[agent-setup] Changed estado to "creando..." for "${agentName}"`);
+    } catch (err) {
+      console.error(`[agent-setup] Failed to update estado:`, err.message);
+    }
   }
 
   const agentProperties = {
@@ -321,7 +323,7 @@ export async function handleAgentSetup(agentPage) {
     agentBody,
     agentProperties,
     agentUrl,
-    isRetry: false,
+    isRetry: options.isRetry || false,
   });
 
   const result = await dispatchToAgent({
