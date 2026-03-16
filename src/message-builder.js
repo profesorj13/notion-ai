@@ -39,7 +39,8 @@ export function buildMessage({
 }
 
 /**
- * Build a lightweight message when an agent is woken up by a comment.
+ * Build a message when an agent is woken up by a page-level comment.
+ * Includes any pending inline comments collected before this trigger.
  */
 export function buildCommentReplyMessage({
   taskTitle,
@@ -47,17 +48,33 @@ export function buildCommentReplyMessage({
   commentText,
   commentAuthor,
   discussionId,
+  inlineComments = [],
 }) {
   const parts = [];
 
-  parts.push(`## Nuevo comentario en tu tarea: ${taskTitle}`);
+  parts.push(`## Feedback en tu tarea: ${taskTitle}`);
+
+  // Include inline comments first (they are the feedback on specific content)
+  if (inlineComments.length > 0) {
+    parts.push(`### Comentarios inline (sobre el contenido)`);
+    for (const ic of inlineComments) {
+      if (ic.blockText) {
+        parts.push(`- **${ic.author}** (sobre: "${ic.blockText.substring(0, 300)}"): "${ic.text}"`);
+      } else {
+        parts.push(`- **${ic.author}**: "${ic.text}"`);
+      }
+    }
+  }
+
+  // Then the page-level comment that triggered this
+  parts.push(`### Mensaje de activación (comentario de página)`);
   parts.push(`**${commentAuthor}** escribió:\n> ${commentText}`);
 
   if (discussionId) {
-    parts.push(`Discussion ID (para responder en el hilo): \`${discussionId}\``);
+    parts.push(`Discussion ID (para responder en el hilo de página): \`${discussionId}\``);
   }
 
-  parts.push(`Respondé en el hilo del comentario en Notion.`);
+  parts.push(`Revisá los comentarios inline, aplicá los cambios necesarios, y respondé en el hilo de página confirmando lo que hiciste. Nota: el contexto "sobre" de cada comentario inline es el bloque principal donde se ancló, pero la selección del usuario puede abarcar bloques vecinos. Evaluá si tiene sentido ajustar también contenido cercano.`);
 
   return parts.join('\n\n');
 }

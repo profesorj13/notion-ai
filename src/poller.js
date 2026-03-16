@@ -7,7 +7,7 @@ import { config } from './config.js';
 
 const POLL_INTERVAL_MS = 10_000;
 const DEDUP_FILE = resolve(import.meta.dirname, '..', 'data', 'dispatched.json');
-const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+const STALE_THRESHOLD_MS = 3 * 60 * 1000; // 3 minutes
 const AGENTS_BASE_HOST = '/root/.openclaw/agents';
 
 // Persistent dedup: { "taskId:estado": timestamp }

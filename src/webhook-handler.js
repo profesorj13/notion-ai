@@ -1,4 +1,4 @@
-import { getPage, getPageBlocks, getComments, blocksToPlainText, richTextToPlain, updatePage } from './notion-client.js';
+import { getPage, getPageBlocks, getComments, getComment, getBlock, blocksToPlainText, richTextToPlain, updatePage } from './notion-client.js';
 import { getAgentByNotionId, refreshAgentCache } from './agent-cache.js';
 import { dispatchToAgent } from './openclaw-client.js';
 import { buildMessage, buildAgentSetupMessage, buildCommentReplyMessage } from './message-builder.js';
@@ -60,9 +60,26 @@ export async function handleNotionWebhook(payload) {
   }
 }
 
+// Pending inline comments per page (not dispatched until a page-level comment triggers)
+const pendingInlineComments = new Map(); // pageId → [{ commentId, timestamp }]
+const INLINE_COMMENT_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+
+function cleanExpiredInlineComments(pageId) {
+  const now = Date.now();
+  const pending = pendingInlineComments.get(pageId);
+  if (!pending) return;
+  const filtered = pending.filter(c => now - c.timestamp < INLINE_COMMENT_TTL_MS);
+  if (filtered.length === 0) {
+    pendingInlineComments.delete(pageId);
+  } else {
+    pendingInlineComments.set(pageId, filtered);
+  }
+}
+
 /**
  * Handle comment.created webhook events.
- * Wakes up the assigned agent with a lightweight prompt (session has context).
+ * - Inline comments (on blocks): stored in memory, no dispatch.
+ * - Page-level comments (discussion at top): triggers dispatch with all pending inline comments.
  */
 export async function handleCommentWebhook(payload) {
   const eventId = payload.id;
@@ -89,7 +106,36 @@ export async function handleCommentWebhook(payload) {
   console.log(`[webhook-comment] Comment ${commentId} on page ${pageId}`);
 
   try {
-    // 1. Get the page — check if it's a task with an agent
+    // 1. Fetch the comment to determine type (inline vs page-level)
+    let triggerComment;
+    try {
+      triggerComment = await getComment(commentId);
+    } catch (err) {
+      console.warn('[webhook-comment] Could not fetch comment by ID:', err.message);
+      return { action: 'error', error: 'could_not_fetch_comment' };
+    }
+
+    const isInline = triggerComment.parent?.type === 'block_id';
+    const commentText = richTextToPlain(triggerComment.rich_text);
+    const authorName = triggerComment.display_name?.resolved_name
+      || triggerComment.created_by?.name
+      || triggerComment.created_by?.person?.email
+      || 'Alguien';
+
+    // 2. If inline → store and skip
+    if (isInline) {
+      cleanExpiredInlineComments(pageId);
+      const pending = pendingInlineComments.get(pageId) || [];
+      pending.push({ commentId, timestamp: Date.now() });
+      pendingInlineComments.set(pageId, pending);
+      console.log(`[webhook-comment] Inline comment from "${authorName}" stored (${pending.length} pending for page)`);
+      return { action: 'stored_inline', pending: pending.length };
+    }
+
+    // 3. Page-level comment → dispatch with all pending inline comments
+    console.log(`[webhook-comment] Page comment from "${authorName}": "${commentText.substring(0, 100)}"`);
+
+    // Get the page and validate agent
     const page = await getPage(pageId);
     const parentDbId = page.parent?.database_id;
 
@@ -121,31 +167,60 @@ export async function handleCommentWebhook(payload) {
       return { action: 'skipped', reason: 'agent_not_dispatchable' };
     }
 
-    // 2. Fetch just the comment that triggered this
-    const commentsResponse = await getComments(pageId);
-    const comments = commentsResponse.results || [];
-    const triggerComment = comments.find(c => c.id === commentId);
+    // 4. Collect all pending inline comments
+    cleanExpiredInlineComments(pageId);
+    const pendingIds = pendingInlineComments.get(pageId) || [];
+    const inlineComments = [];
 
-    const commentText = triggerComment
-      ? richTextToPlain(triggerComment.rich_text)
-      : '(no se pudo leer el comentario)';
+    for (const { commentId: inlineId } of pendingIds) {
+      try {
+        const inlineComment = await getComment(inlineId);
+        const inlineAuthor = inlineComment.display_name?.resolved_name
+          || inlineComment.created_by?.name
+          || 'Alguien';
+        const inlineText = richTextToPlain(inlineComment.rich_text);
+        // Fetch the block text for context
+        let blockText = '';
+        const parentBlockId = inlineComment.parent?.block_id;
+        if (parentBlockId) {
+          try {
+            const block = await getBlock(parentBlockId);
+            const blockContent = block[block.type];
+            if (blockContent?.rich_text) {
+              blockText = richTextToPlain(blockContent.rich_text);
+            } else if (blockContent?.title) {
+              blockText = richTextToPlain(blockContent.title);
+            }
+          } catch (err) {
+            console.warn('[webhook-comment] Could not fetch block text:', err.message);
+          }
+        }
+        inlineComments.push({
+          author: inlineAuthor,
+          text: inlineText,
+          blockText: blockText || '',
+        });
+      } catch (err) {
+        console.warn(`[webhook-comment] Could not fetch inline comment ${inlineId}:`, err.message);
+      }
+    }
 
-    const authorName = triggerComment?.created_by?.name
-      || triggerComment?.created_by?.person?.email
-      || 'Alguien';
+    // Clear pending after collecting
+    pendingInlineComments.delete(pageId);
 
-    console.log(`[webhook-comment] "${authorName}" on "${taskTitle}": "${commentText.substring(0, 100)}"`);
+    console.log(`[webhook-comment] Dispatching with ${inlineComments.length} inline + 1 page comment`);
 
-    // 3. Build lightweight message (agent already has task context in session)
+    // 5. Build message with all comments
     const message = buildCommentReplyMessage({
       taskTitle,
       taskId: pageId,
       commentText,
       commentAuthor: authorName,
-      discussionId: triggerComment?.discussion_id,
+      discussionId: triggerComment.discussion_id,
+      inlineComments,
     });
 
-    // 4. Dispatch to the same session as the task
+    // 6. Dispatch
     const result = await dispatchToAgent({
       message,
       agentId: agent.openclawId,
@@ -156,7 +231,7 @@ export async function handleCommentWebhook(payload) {
     });
 
     console.log(`[webhook-comment] Dispatched "${agent.nombre}", status: ${result.status}`);
-    return { action: 'dispatched', agent: agent.nombre, status: result.status };
+    return { action: 'dispatched', agent: agent.nombre, inlineCount: inlineComments.length, status: result.status };
 
   } catch (err) {
     console.error('[webhook-comment] Error:', err);
