@@ -9,6 +9,7 @@ import { getPage, getPageBlocks, blocksToPlainText } from './notion-client.js';
 import { buildMessage } from './message-builder.js';
 import { startPolling, stopPolling, isPolling, getDispatchedCount } from './poller.js';
 import { createAgent } from './agent-creator.js';
+import { updateTeamDirectory } from './team-directory.js';
 
 const POLLING_ENABLED = process.env.POLLING_ENABLED !== 'false'; // default: true
 
@@ -155,8 +156,14 @@ app.post('/agents/restart-gateway', async (req, res) => {
   console.log('[restart-gateway] Docker restart requested');
   res.json({ success: true, message: 'Restart initiated. Gateway will be back in ~30s.' });
 
-  // Run async after response is sent
+  // Update team directory in all agents before restarting
   setTimeout(() => {
+    try {
+      updateTeamDirectory();
+    } catch (err) {
+      console.error('[restart-gateway] Team directory update failed:', err.message);
+    }
+
     try {
       execSync('cd /root/openclaw && docker compose restart openclaw-gateway', {
         timeout: 90_000,
