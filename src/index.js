@@ -10,6 +10,8 @@ import { buildMessage } from './message-builder.js';
 import { startPolling, stopPolling, isPolling, getDispatchedCount } from './poller.js';
 import { createAgent } from './agent-creator.js';
 import { updateTeamDirectory } from './team-directory.js';
+import docsRouter from './docs-server.js';
+import pubRouter from "./pub-server.js";
 
 const POLLING_ENABLED = process.env.POLLING_ENABLED !== 'false'; // default: true
 
@@ -24,6 +26,10 @@ app.use('/webhook/notion', express.json({
 
 // JSON parser for all other routes
 app.use(express.json());
+
+// Docs server (markdown viewer/editor with comments)
+app.use("/docs", docsRouter);
+app.use("/pub", pubRouter);
 
 // Verify Notion webhook signature
 function verifySignature(rawBody, signatureHeader) {

@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "skills": {
+    "audit-website": {
+      "source": "squirrelscan/skills",
+      "sourceType": "github",
+      "computedHash": "2c060290f90340e8bb6009502ec936b8ebb3ff889332a43e24bf210528ebba9f"
+    },
+    "seo-audit": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "computedHash": "ec3109d213dde1747614ad1112ef0e498e04b24e464538968e156dfbfadb2121"
+    },
+    "ui-design-review": {
+      "source": "mastepanoski/claude-skills",
+      "sourceType": "github",
+      "computedHash": "6dc530be13e1defe7a20f8682e6c3fd993ec2d23ca4da66bfdf9043fac6de775"
+    }
+  }
+}

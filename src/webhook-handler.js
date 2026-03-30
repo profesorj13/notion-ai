@@ -289,8 +289,6 @@ async function processTask(taskTitle, estado, taskId, taskUrl, page, agent) {
 
   if (estado === 'Pendiente' || estado === 'En progreso') {
     return await dispatchTask(taskTitle, taskId, taskUrl, page, agent, false);
-  } else if (estado === 'Necesita Correcciones') {
-    return await dispatchTask(taskTitle, taskId, taskUrl, page, agent, true);
   } else {
     console.log(`[webhook] Task "${taskTitle}" estado="${estado}", no dispatch needed`);
     return { action: 'skipped', reason: `estado_${estado}` };

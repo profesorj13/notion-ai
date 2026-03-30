@@ -59,10 +59,8 @@ export async function pollForTasks() {
           relation: { is_not_empty: true },
         },
         {
-          or: [
-            { property: 'Estado', select: { equals: 'Pendiente' } },
-            { property: 'Estado', select: { equals: 'Necesita Correcciones' } },
-          ],
+          property: 'Estado',
+          select: { equals: 'Pendiente' },
         },
       ],
     });
